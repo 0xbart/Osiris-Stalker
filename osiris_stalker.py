@@ -2,18 +2,22 @@
 import traceback
 
 from bs4 import BeautifulSoup
-import ConfigParser
+import configparser
 import argparse
 import requests
 import json
 import sys
 import os
-
+import logging
+from notifiers.slack import SlackNotify
 
 class Osiris:
     # START DEFAULT VARS
     args = None
     config = None
+
+    logger = logging.getLogger('Osiris-Stalker')
+    logger.setLevel(logging.DEBUG)
 
     URL_BASE = 'https://studievolg.hsleiden.nl/student/Personalia.do'
     URL_AUTH = 'https://studievolg.hsleiden.nl/student/AuthenticateUser.do'
@@ -28,8 +32,8 @@ class Osiris:
         'inPortal': '',
         'callDirect': '',
         'requestToken': '',
-        'gebruikersNaam': '',
-        'wachtWoord': '',
+        'VB_gebruikersNaam': '',
+        'VB_wachtWoord': '',
         'event': 'login'
     }
 
@@ -40,30 +44,34 @@ class Osiris:
         self.config = config
 
         if args.l:
-            self.payload['gebruikersNaam'] = args.u
-            self.payload['wachtWoord'] = args.p
+            self.payload['VB_gebruikersNaam'] = args.u
+            self.payload['VB_wachtWoord'] = args.p
         elif args.c:
             try:
-                self.payload['gebruikersNaam'] = config.get('credentials', 'username')
-                self.payload['wachtWoord'] = config.get('credentials', 'password')
+                self.payload['VB_gebruikersNaam'] = config.get('credentials', 'username')
+                self.payload['VB_wachtWoord'] = config.get('credentials', 'password')
             except Exception:
-                print "Reading config failed."
+                logging.critical("Reading config failed.")
                 sys.exit(0)
         else:
-            print "No valid choice. Exiting."
+            logging.critical("No valid choice. Exiting.")
             sys.exit(0)
 
-    def stalk(self):
+    def getGrades(self):
         try:
             with requests.Session() as s:
-                r = s.get(self.URL_BASE, verify=False)
+                r = s.get(self.URL_BASE, headers=self.headers, verify=False)
 
-                # Get first cookie --> Important!
-                cookie = {
-                    'JSESSIONID': r.cookies['JSESSIONID']
-                }
+                # extract request token
+                soup = BeautifulSoup(str(r.text), 'lxml')
+                requesttoken = soup.find("input", type="hidden", id="requestToken")
 
-                p = s.post(self.URL_AUTH, headers=self.headers, data=self.payload, cookies=cookie)
+                # Put request token in payload
+                self.payload['requestToken'] = requesttoken.attrs['value']
+
+                p = s.post(self.URL_AUTH, headers=self.headers, data=self.payload)
+
+                logging.debug("Second Stage done")
 
                 r = s.get(self.URL)
                 data = r.text
@@ -74,54 +82,93 @@ class Osiris:
                 headings = [th.get_text() for th in table.find("tr").find_all("th")]
                 datasets = [headings]
 
+                allgrades = {}
+                grades_done = 0
                 for row in table.find_all("tr")[1:]:
-                    dataset = zip(td.get_text() for td in row.find_all("td"))
-                    datasets.append(dataset)
-
-                old_results = None
-                results = {
-                    "course_1": datasets[1][1][0],
-                    "grade_1": datasets[1][6][0],
-                    "course_2": datasets[2][1][0],
-                    "grade_2": datasets[1][6][0]
-                }
-
-                try:
-                    f_old = open(os.path.join(os.path.realpath(__file__), 'osiris_results.json'), 'r')
-                    old_results = json.loads(f_old.read())
-                    f_old.close()
-                except IOError:
-                    pass
-
-                try:
-                    result_shared_items = set(old_results.items()) & set(results.items())
-                except AttributeError:
-                    result_shared_items = []
-
-                if len(result_shared_items) == len(results):
-                    print 'No Osiris updates.'
-                else:
-                    print 'Osiris updates detected!'
-
-                    f = open(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'osiris_results.json'), 'w')
-                    f.write(json.dumps(results, indent=True, sort_keys=False))
-                    f.close()
-
-                    msg = "Osiris update! This are the latest two results of Osiris: \n\n"
-                    msg += "1: {}: {}\n".format(results['course_1'], results['grade_1'])
-                    msg += "2: {}: {}".format(results['course_2'], results['grade_2'])
-
-                    print msg
-
-                    # TODO REWRITE THIS VERY UGLY UGLY MAIL FUNCTION
-                    # smtplib or flask-mail?
-
-                    # result_php_mail = subprocess.call(["php", "-f", "/<FULL PATH>/sendMailUpdate.php",
-                    #                                    "email@example.com", msg])
-                    # print 'result: ' + str(result_php_mail)
+                    allgrades[grades_done] = {
+                        "toetsdatum": row.contents[0].text,
+                        "module": row.contents[1].text,
+                        "omschrijving": row.contents[2].text,
+                        "toetsvorm": row.contents[3].text,
+                        "weging": row.contents[4].text,
+                        "resultaat": row.contents[6].text,
+                        "mutatiedatum": row.contents[8].text
+                    }
+                    grades_done += 1
+                return allgrades
         except Exception:
-            print "Getting Osiris results failed."
-            print traceback.format_exc()
+            print(traceback.format_exc())
+
+    def compareChanges(self, newGrades):
+        oldGrades = False
+        try:
+            # Load old grades, if available
+            try:
+                oldGradesfile = open(os.path.join(os.getcwd(), "storage/osiris_results.json"), "r")
+                oldGrades = json.loads(oldGradesfile.read())
+                oldGradesfile.close()
+            except IOError:
+                oldGrades = {0: {
+                        "toetsdatum": "",
+                        "module": "",
+                        "omschrijving": "",
+                        "toetsvorm": "",
+                        "weging": "",
+                        "resultaat": "",
+                        "mutatiedatum": ""
+                }}
+                pass
+
+            # Compare each new grade with presence in old grades
+            try:
+                reallyNewGrades = {}
+                if not oldGrades:
+                    return newGrades
+                for newGrade in newGrades.items():
+                    change = True
+                    for oldGrade in oldGrades.items():
+                        if newGrade[1]['mutatiedatum'] == oldGrade[1]['mutatiedatum'] \
+                                and newGrade[1]['module'] == oldGrade[1]['module'] \
+                                and newGrade[1]['resultaat'] == oldGrade[1]['resultaat'] \
+                                and newGrade[1]['toetsvorm'] == oldGrade[1]['toetsvorm']:
+                            change = False
+                    if change:
+                        reallyNewGrades[reallyNewGrades.__len__() + 1] = newGrade
+
+                if reallyNewGrades != {}:
+                    return reallyNewGrades
+                else:
+                    return False
+            except Exception:
+                print(traceback.format_exc())
+
+        except Exception:
+            print(traceback.format_exc())
+
+    def sendNotifications(self, gradesToSend):
+        # Notify via slack if allowed
+        if config.get('slack', 'enabled') == "True":
+            SlackNotify(config, gradesToSend).sendNotification()
+
+    def writeGrades(self, gradesToStore):
+        with open(os.path.join(os.getcwd(), "storage/osiris_results.json"), "w") as f:
+            f.write(json.dumps(gradesToStore))
+
+    def stalk(self):
+        try:
+            results = self.getGrades()
+
+            oldresults = self.compareChanges(results)
+
+            if oldresults:
+                logging.info("New grades detected!")
+                self.sendNotifications(oldresults)
+                self.writeGrades(results)
+            else:
+                logging.debug("No new grades found")
+        except Exception:
+            print("Getting Osiris results failed.")
+            print(traceback.format_exc())
             sys.exit(0)
 
 
@@ -140,7 +187,7 @@ if __name__ in '__main__':
 
     if args.l:
         if args.u is None or args.p is None:
-            print "Params [-u / -p] missing."
+            print("Params [-u / -p] missing.")
             sys.exit(0)
 
     config = None
@@ -148,13 +195,13 @@ if __name__ in '__main__':
     if args.c:
         try:
             try:
-                config = ConfigParser.ConfigParser()
+                config = configparser.ConfigParser()
                 config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.c))
             except Exception:
-                print "Config cannot be load."
+                print("Config cannot be load.")
                 sys.exit(0)
         except IOError:
-            print "Config not found."
+            print("Config not found.")
 
     # Everything looks fine. Let's stalk Osiris. :-)
 
