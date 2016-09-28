@@ -12,12 +12,14 @@ import os
 from bs4 import BeautifulSoup
 from notifiers.slack import SlackNotify
 from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-
 
 db_path = '%s//sqlite.db' % os.path.join(os.path.dirname(os.path.realpath(__file__)))
 base = declarative_base()
 engine = create_engine('sqlite:///%s' % db_path)
+DB_session = sessionmaker(bind=engine)
+session = DB_session()
 
 
 class Grade(base):
@@ -45,11 +47,12 @@ class Grade(base):
 
 
 class Osiris:
-
     # START DEFAULT VARS
 
     args = None
     config = None
+    grades_requested = {}
+    grades_new = []
 
     logger = logging.getLogger('Osiris-Stalker')
     logger.setLevel(logging.DEBUG)
@@ -113,98 +116,69 @@ class Osiris:
                 soup = BeautifulSoup(data, 'lxml')
                 table = soup.find("table", attrs={"class": "OraTableContent"})
 
-                headings = [th.get_text() for th in table.find("tr").find_all("th")]
-                datasets = [headings]
+                try:
+                    headings = [th.get_text() for th in table.find("tr").find_all("th")]
+                    datasets = [headings]
 
-                allgrades = {}
-                grades_done = 0
+                    logging.info("Data headings in table parsed! Dataset: %s." % datasets)
+                except Exception:
+                    logging.critical("Oops. Table cannot be parsed! Maybe wrong credentials? :-)")
+                    sys.exit(1)
+
                 for row in table.find_all("tr")[1:]:
-                    allgrades[grades_done] = {
-                        "toetsdatum": row.contents[0].text,
+                    self.grades_requested[len(self.grades_requested)] = {
+                        "date_test": row.contents[0].text,
                         "module": row.contents[1].text,
-                        "omschrijving": row.contents[2].text,
+                        "description": row.contents[2].text,
                         "toetsvorm": row.contents[3].text,
-                        "weging": row.contents[4].text,
-                        "resultaat": row.contents[6].text,
-                        "mutatiedatum": row.contents[8].text
+                        "weighting": row.contents[4].text,
+                        "result": row.contents[6].text,
+                        "date_result": row.contents[8].text
                     }
-                    grades_done += 1
-                return allgrades
+
+                return True
         except Exception:
             logging.critical("Unhandled exception! Trowing traceback.")
             logging.critical(traceback.format_exc())
             sys.exit(1)
 
-    def compareChanges(self, newGrades):
-        oldGrades = False
-
+    def checkChanges(self):
         try:
-            # Load old grades, if available
-            try:
-                oldGradesfile = open(os.path.join(os.getcwd(), "storage/osiris_results.json"), "r")
-                oldGrades = json.loads(oldGradesfile.read())
-                oldGradesfile.close()
-            except IOError:
-                oldGrades = {0: {
-                        "toetsdatum": "",
-                        "module": "",
-                        "omschrijving": "",
-                        "toetsvorm": "",
-                        "weging": "",
-                        "resultaat": "",
-                        "mutatiedatum": ""
-                }}
-                pass
+            for grade in [g for g in self.grades_requested.values()]:
 
-            # Compare each new grade with presence in old grades
-            try:
-                reallyNewGrades = {}
-                if not oldGrades:
-                    return newGrades
-                for newGrade in newGrades.items():
-                    change = True
-                    for oldGrade in oldGrades.items():
-                        if newGrade[1]['mutatiedatum'] == oldGrade[1]['mutatiedatum'] \
-                                and newGrade[1]['module'] == oldGrade[1]['module'] \
-                                and newGrade[1]['resultaat'] == oldGrade[1]['resultaat'] \
-                                and newGrade[1]['toetsvorm'] == oldGrade[1]['toetsvorm']:
-                            change = False
-                    if change:
-                        reallyNewGrades[reallyNewGrades.__len__() + 1] = newGrade
+                c = session.query(Grade).filter(Grade.module == grade['module'],
+                                                Grade.date_test == grade['date_test'],
+                                                Grade.date_result == grade['date_result']).first()
 
-                if reallyNewGrades != {}:
-                    return reallyNewGrades
-                else:
-                    return False
-            except Exception:
-                logging.critical("Unhandled exception! Trowing traceback.")
-                logging.critical(traceback.format_exc())
-                sys.exit(1)
+                if not c:
+                    # Doesn't exist in database. Append to database.
+                    self.grades_new.append(grade)
+
+                    x = Grade(date_test=grade['date_test'], date_result=grade['date_result'], module=grade['module'],
+                              description=grade['description'], weighting=grade['weighting'], result=grade['result'])
+
+                    session.add(x)
+                    session.commit()
 
         except Exception:
-            logging.critical("Unhandled exception! Trowing traceback.")
+            logging.critical("Unhandled Exception! Trowing traceback.")
             logging.critical(traceback.format_exc())
             sys.exit(1)
 
-    def sendNotifications(self, gradesToSend):
+    def sendNotifications(self):
         # Notify via slack if allowed
-        if config.get('slack', 'enabled') == "True":
-            SlackNotify(config, gradesToSend).sendNotification()
-
-    def writeGrades(self, gradesToStore):
-        with open(os.path.join(os.getcwd(), "storage/osiris_results.json"), "w") as f:
-            f.write(json.dumps(gradesToStore))
+        # if config.get('slack', 'enabled') == "True":
+        #     SlackNotify(config, gradesToSend).sendNotification()
+        print('todo')
 
     def stalk(self):
         try:
-            results = self.getGrades()
+            if self.getGrades():
+                self.checkChanges()
 
-            oldresults = self.compareChanges(results)
-
-            if oldresults:
+            if len(self.grades_new):
                 logging.info("New grades detected!")
-                self.sendNotifications(oldresults)
-                self.writeGrades(results)
+                self.sendNotifications()
             else:
                 logging.info("No new grades found")
         except Exception:
