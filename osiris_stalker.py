@@ -148,7 +148,7 @@ class Osiris:
     def sendNotifications(self, gradesToSend):
         # Notify via slack if allowed
         if config.get('slack', 'enabled') == "True":
-            SlackNotify(config, gradesToSend).sendNotification()
+            SlackNotify(config).sendgrades(gradesToSend)
 
     def writeGrades(self, gradesToStore):
         with open(os.path.join(os.getcwd(), "storage/osiris_results.json"), "w") as f:

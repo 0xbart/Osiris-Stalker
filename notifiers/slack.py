@@ -3,19 +3,21 @@ from configparser import ConfigParser
 
 class SlackNotify:
     config = ConfigParser()
-    grades = {}
+    webhook = ""
+    username = ""
+    channel = ""
+    slack = ""
 
-    def __init__(self, config, grades):
+    def __init__(self, config):
         self.config = config
-        self.grades = grades
+        self.webhook = self.config.get('slack', 'webhookurl')
+        self.username = self.config.get('slack', 'username')
+        self.channel = self.config.get('slack', 'channel')
+        self.slack = slackweb(url=self.webhook)
 
-    def sendNotification(self):
-        webhook = self.config.get('slack', 'webhookurl')
-        username = self.config.get('slack', 'username')
-        channel = self.config.get('slack', 'channel')
-
-        gradeAttachments = []
-        for grade in self.grades.items():
+    def sendgrades(self, grades):
+        grade_attachments = []
+        for grade in grades.items():
             attachmenttext = (str(grade[1][1]['omschrijving']) + "\n"
                              "Toetsvorm: " + str(grade[1][1]['toetsvorm']) + "\n"
                              "Toetsdatum: " + str(grade[1][1]['toetsdatum']) + "\n"
@@ -23,11 +25,17 @@ class SlackNotify:
                              "Resultaat: " + str(grade[1][1]['resultaat']) + "\n")
             attachment = {"title": grade[1][1]['module'],
                           "text": attachmenttext,
-                          "prkdwn_in": ["text","pretext"]}
-            gradeAttachments.append(attachment)
+                          "mrkdwn_in": ["text","pretext"]}
+            grade_attachments.append(attachment)
 
-        slack = slackweb.Slack(url=webhook)
-        slack.notify(text="Osiris UPDATE!",
-                     channel=channel,
-                     username=username,
-                     attachments=gradeAttachments)
+        self.slack.notify(text="Osiris UPDATE!",
+                          channel=self.channel,
+                          username=self.username,
+                          attachments=grade_attachments)
+        return True
+
+    def senderror(self, errormessage):
+        self.slack.notify(text="Error in Osiris-Stalker!\n" + errormessage,
+                          channel=self.channel,
+                          username=self.username)
+        return True
