@@ -72,6 +72,8 @@ class Osiris:
         'event': 'login'
     }
 
+    lastcheckwaserror = 0
+
     # END OF DEFAULT VARS
 
     def __init__(self, args, config):
@@ -133,6 +135,7 @@ class Osiris:
         except Exception:
             logging.critical("Unhandled exception! Trowing traceback.")
             logging.critical(traceback.format_exc())
+            self.senderrors(traceback.format_exc())
             sys.exit(1)
 
     def compareChanges(self, newGrades):
@@ -188,8 +191,15 @@ class Osiris:
 
     def sendNotifications(self, gradesToSend):
         # Notify via slack if allowed
-        if config.get('slack', 'enabled') == "True":
-            SlackNotify(config).sendgrades(gradesToSend)
+        slack = SlackNotify(config)
+        if slack.checkenabled():
+            slack.sendgrades(gradesToSend)
+
+    def senderrors(self, errormessage):
+        if self.lastcheckwaserror == 0:
+            slack = SlackNotify(config)
+            if slack.checkenabled():
+                slack.senderror(errormessage)
 
     def writeGrades(self, gradesToStore):
         with open(os.path.join(os.getcwd(), "storage/osiris_results.json"), "w") as f:

@@ -9,11 +9,19 @@ class SlackNotify:
     slack = ""
 
     def __init__(self, config):
-        self.config = config
-        self.webhook = self.config.get('slack', 'webhookurl')
-        self.username = self.config.get('slack', 'username')
-        self.channel = self.config.get('slack', 'channel')
-        self.slack = slackweb.Slack(url=self.webhook)
+        try:
+            self.config = config
+            self.webhook = self.config.get('slack', 'webhookurl')
+            self.username = self.config.get('slack', 'username')
+            self.channel = self.config.get('slack', 'channel')
+            self.slack = slackweb.Slack(url=self.webhook)
+        except Exception:
+            raise NotImplementedError
+
+    def checkenabled(self):
+        if self.config.get('slack', 'enabled') == "True":
+            return True
+        return False
 
     def sendgrades(self, grades):
         grade_attachments = []
