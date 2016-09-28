@@ -1,18 +1,53 @@
 # Osiris Stalker (c) Github.com/l0ngestever
-import traceback
 
-from bs4 import BeautifulSoup
 import configparser
+import traceback
 import argparse
 import requests
+import logging
 import json
 import sys
 import os
-import logging
+
+from bs4 import BeautifulSoup
 from notifiers.slack import SlackNotify
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+
+
+db_path = '%s//sqlite.db' % os.path.join(os.path.dirname(os.path.realpath(__file__)))
+base = declarative_base()
+engine = create_engine('sqlite:///%s' % db_path)
+
+
+class Grade(base):
+    __tablename__ = 'grade'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date_test = Column(String, nullable=True)
+    date_result = Column(String, nullable=True)
+    module = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    weighting = Column(String, nullable=True)
+    result = Column(String, nullable=True)
+
+    def __init__(self, date_test=None, date_result=None, module=None, description=None, weighting=None, result=None):
+        self.date_test = date_test
+        self.date_result = date_result
+        self.module = module
+        self.description = description
+        self.weighting = weighting
+        self.result = result
+
+    def __repr__(self):
+        return "<Grade(id='%d', date_test='%s', date_result='%s', module='%s', weighting='%s', result='%s')>" % (
+            self.id, self.date_test, self.date_result, self.module, self.weighting, self.result)
+
 
 class Osiris:
+
     # START DEFAULT VARS
+
     args = None
     config = None
 
@@ -52,10 +87,11 @@ class Osiris:
                 self.payload['VB_wachtWoord'] = config.get('credentials', 'password')
             except Exception:
                 logging.critical("Reading config failed.")
-                sys.exit(0)
+                logging.critical(traceback.format_exc())
+                sys.exit(1)
         else:
             logging.critical("No valid choice. Exiting.")
-            sys.exit(0)
+            sys.exit(1)
 
     def getGrades(self):
         try:
@@ -70,8 +106,6 @@ class Osiris:
                 self.payload['requestToken'] = requesttoken.attrs['value']
 
                 p = s.post(self.URL_AUTH, headers=self.headers, data=self.payload)
-
-                logging.debug("Second Stage done")
 
                 r = s.get(self.URL)
                 data = r.text
@@ -97,10 +131,13 @@ class Osiris:
                     grades_done += 1
                 return allgrades
         except Exception:
-            print(traceback.format_exc())
+            logging.critical("Unhandled exception! Trowing traceback.")
+            logging.critical(traceback.format_exc())
+            sys.exit(1)
 
     def compareChanges(self, newGrades):
         oldGrades = False
+
         try:
             # Load old grades, if available
             try:
@@ -140,10 +177,14 @@ class Osiris:
                 else:
                     return False
             except Exception:
-                print(traceback.format_exc())
+                logging.critical("Unhandled exception! Trowing traceback.")
+                logging.critical(traceback.format_exc())
+                sys.exit(1)
 
         except Exception:
-            print(traceback.format_exc())
+            logging.critical("Unhandled exception! Trowing traceback.")
+            logging.critical(traceback.format_exc())
+            sys.exit(1)
 
     def sendNotifications(self, gradesToSend):
         # Notify via slack if allowed
@@ -165,11 +206,11 @@ class Osiris:
                 self.sendNotifications(oldresults)
                 self.writeGrades(results)
             else:
-                logging.debug("No new grades found")
+                logging.info("No new grades found")
         except Exception:
-            print("Getting Osiris results failed.")
-            print(traceback.format_exc())
-            sys.exit(0)
+            logging.critical("Getting Osiris results failed.")
+            logging.critical(traceback.format_exc())
+            sys.exit(1)
 
 
 if __name__ in '__main__':
@@ -183,11 +224,19 @@ if __name__ in '__main__':
     group.add_argument('-u', help='Username of Osiris (without @student.hsleiden.nl).')
     group.add_argument('-p', help='Password of Osiris (hsleiden account).')
 
+    parser.add_argument('--create-database', help='Create database. Note: only if not exists.', action='store_true')
+
     args = parser.parse_args()
+
+    if args.create_database:
+        if not os.path.exists(db_path):
+            base.metadata.create_all(engine)
+        else:
+            logging.warning("Database exists! Please delete the old one.")
 
     if args.l:
         if args.u is None or args.p is None:
-            print("Params [-u / -p] missing.")
+            logging.critical("Params [-u / -p] missing.")
             sys.exit(0)
 
     config = None
@@ -198,10 +247,11 @@ if __name__ in '__main__':
                 config = configparser.ConfigParser()
                 config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.c))
             except Exception:
-                print("Config cannot be load.")
-                sys.exit(0)
+                logging.critical("Config cannot be load.")
+                sys.exit(1)
         except IOError:
-            print("Config not found.")
+            logging.critical("Config not found.")
+            sys.exit(1)
 
     # Everything looks fine. Let's stalk Osiris. :-)
 
