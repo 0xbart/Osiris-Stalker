@@ -1,0 +1,9 @@
+[credentials]
+username: username
+password: password
+
+[slack]
+enabled: True
+webhookurl: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+username: Osiris-Stalker
+channel: #school
