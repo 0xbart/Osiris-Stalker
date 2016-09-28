@@ -100,7 +100,7 @@ class Osiris:
     def getGrades(self):
         try:
             with requests.Session() as s:
-                r = s.get(self.URL_BASE, headers=self.headers, verify=False)
+                r = s.get(self.URL_BASE, headers=self.headers, verify=True)
 
                 # extract request token
                 soup = BeautifulSoup(str(r.text), 'lxml')
