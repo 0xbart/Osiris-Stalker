@@ -9,7 +9,40 @@ import json
 import sys
 import os
 import logging
+
 from notifiers.slack import SlackNotify
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+
+
+db_path = '%s//sqlite.db' % os.path.join(os.path.dirname(os.path.realpath(__file__)))
+base = declarative_base()
+engine = create_engine('sqlite:///%s' % db_path)
+
+
+class Grade(base):
+    __tablename__ = 'grade'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date_test = Column(String, nullable=True)
+    date_result = Column(String, nullable=True)
+    module = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    weighting = Column(String, nullable=True)
+    result = Column(String, nullable=True)
+
+    def __init__(self, date_test=None, date_result=None, module=None, description=None, weighting=None, result=None):
+        self.date_test = date_test
+        self.date_result = date_result
+        self.module = module
+        self.description = description
+        self.weighting = weighting
+        self.result = result
+
+    def __repr__(self):
+        return "<Grade(id='%d', date_test='%s', date_result='%s', module='%s', weighting='%s', result='%s')>" % (
+            self.id, self.date_test, self.date_result, self.module, self.weighting, self.result)
+
 
 class Osiris:
     # START DEFAULT VARS
@@ -183,7 +216,15 @@ if __name__ in '__main__':
     group.add_argument('-u', help='Username of Osiris (without @student.hsleiden.nl).')
     group.add_argument('-p', help='Password of Osiris (hsleiden account).')
 
+    parser.add_argument('--create-database', help='Create database. Note: only if not exists.', action='store_true')
+
     args = parser.parse_args()
+
+    if args.create_database:
+        if not os.path.exists(db_path):
+            base.metadata.create_all(engine)
+        else:
+            print("Database exists! Please delete the old one.")
 
     if args.l:
         if args.u is None or args.p is None:
@@ -198,10 +239,9 @@ if __name__ in '__main__':
                 config = configparser.ConfigParser()
                 config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.c))
             except Exception:
-                print("Config cannot be load.")
-                sys.exit(0)
+                sys.exit("Config cannot be load.")
         except IOError:
-            print("Config not found.")
+            sys.exit("Config not found.")
 
     # Everything looks fine. Let's stalk Osiris. :-)
 
