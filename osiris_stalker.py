@@ -29,21 +29,23 @@ class Grade(base):
     date_test = Column(String, nullable=True)
     date_result = Column(String, nullable=True)
     module = Column(String, nullable=True)
+    test_type = Column(String, nullable=True)
     description = Column(String, nullable=True)
     weighting = Column(String, nullable=True)
     result = Column(String, nullable=True)
 
-    def __init__(self, date_test=None, date_result=None, module=None, description=None, weighting=None, result=None):
+    def __init__(self, date_test, date_result, module, test_type, description, weighting, result):
         self.date_test = date_test
         self.date_result = date_result
         self.module = module
+        self.test_type = test_type
         self.description = description
         self.weighting = weighting
         self.result = result
 
     def __repr__(self):
-        return "<Grade(id='%d', date_test='%s', date_result='%s', module='%s', weighting='%s', result='%s')>" % (
-            self.id, self.date_test, self.date_result, self.module, self.weighting, self.result)
+        return "<Grade(id='%d', dates='%s_%s', module='%s', test_type='%s', weighting='%s', result='%s')>" % (
+                   self.id, self.date_test, self.date_result, self.module, self.test_type, self.weighting, self.result)
 
 
 class Osiris:
@@ -130,7 +132,7 @@ class Osiris:
                         "date_test": row.contents[0].text,
                         "module": row.contents[1].text,
                         "description": row.contents[2].text,
-                        "toetsvorm": row.contents[3].text,
+                        "test_type": row.contents[3].text,
                         "weighting": row.contents[4].text,
                         "result": row.contents[6].text,
                         "date_result": row.contents[8].text
@@ -146,16 +148,20 @@ class Osiris:
         try:
             for grade in [g for g in self.grades_requested.values()]:
 
-                c = session.query(Grade).filter(Grade.module == grade['module'],
-                                                Grade.date_test == grade['date_test'],
-                                                Grade.date_result == grade['date_result']).first()
+                c = session.query(Grade).filter(Grade.date_test == grade['date_test'],
+                                                Grade.date_result == grade['date_result'],
+                                                Grade.module == grade['module'],
+                                                Grade.test_type == grade['test_type'],
+                                                Grade.description == grade['description'],
+                                                Grade.weighting == grade['weighting'],
+                                                Grade.result == grade['result']).first()
 
                 if not c:
                     # Doesn't exist in database. Append to database.
                     self.grades_new.append(grade)
 
-                    x = Grade(date_test=grade['date_test'], date_result=grade['date_result'], module=grade['module'],
-                              description=grade['description'], weighting=grade['weighting'], result=grade['result'])
+                    x = Grade(grade['date_test'], grade['date_result'], grade['module'], grade['test_type'],
+                              grade['description'], grade['weighting'], grade['result'])
 
                     session.add(x)
                     session.commit()
@@ -167,9 +173,8 @@ class Osiris:
 
     def sendNotifications(self):
         # Notify via slack if allowed
-        # if config.get('slack', 'enabled') == "True":
-        #     SlackNotify(config, gradesToSend).sendNotification()
-        print('todo')
+        if config.get('slack', 'enabled') == "True":
+            SlackNotify(config, self.grades_new).sendNotification()
 
     def stalk(self):
         try:
