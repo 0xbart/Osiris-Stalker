@@ -1,15 +1,15 @@
 # Osiris Stalker (c) Github.com/l0ngestever
-import traceback
 
-from bs4 import BeautifulSoup
 import configparser
+import traceback
 import argparse
 import requests
+import logging
 import json
 import sys
 import os
-import logging
 
+from bs4 import BeautifulSoup
 from notifiers.slack import SlackNotify
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
@@ -45,7 +45,9 @@ class Grade(base):
 
 
 class Osiris:
+
     # START DEFAULT VARS
+
     args = None
     config = None
 
@@ -85,10 +87,11 @@ class Osiris:
                 self.payload['VB_wachtWoord'] = config.get('credentials', 'password')
             except Exception:
                 logging.critical("Reading config failed.")
-                sys.exit(0)
+                logging.critical(traceback.format_exc())
+                sys.exit(1)
         else:
             logging.critical("No valid choice. Exiting.")
-            sys.exit(0)
+            sys.exit(1)
 
     def getGrades(self):
         try:
@@ -103,8 +106,6 @@ class Osiris:
                 self.payload['requestToken'] = requesttoken.attrs['value']
 
                 p = s.post(self.URL_AUTH, headers=self.headers, data=self.payload)
-
-                logging.debug("Second Stage done")
 
                 r = s.get(self.URL)
                 data = r.text
@@ -130,10 +131,13 @@ class Osiris:
                     grades_done += 1
                 return allgrades
         except Exception:
-            print(traceback.format_exc())
+            logging.critical("Unhandled exception! Trowing traceback.")
+            logging.critical(traceback.format_exc())
+            sys.exit(1)
 
     def compareChanges(self, newGrades):
         oldGrades = False
+
         try:
             # Load old grades, if available
             try:
@@ -173,10 +177,14 @@ class Osiris:
                 else:
                     return False
             except Exception:
-                print(traceback.format_exc())
+                logging.critical("Unhandled exception! Trowing traceback.")
+                logging.critical(traceback.format_exc())
+                sys.exit(1)
 
         except Exception:
-            print(traceback.format_exc())
+            logging.critical("Unhandled exception! Trowing traceback.")
+            logging.critical(traceback.format_exc())
+            sys.exit(1)
 
     def sendNotifications(self, gradesToSend):
         # Notify via slack if allowed
@@ -198,11 +206,11 @@ class Osiris:
                 self.sendNotifications(oldresults)
                 self.writeGrades(results)
             else:
-                logging.debug("No new grades found")
+                logging.info("No new grades found")
         except Exception:
-            print("Getting Osiris results failed.")
-            print(traceback.format_exc())
-            sys.exit(0)
+            logging.critical("Getting Osiris results failed.")
+            logging.critical(traceback.format_exc())
+            sys.exit(1)
 
 
 if __name__ in '__main__':
@@ -224,11 +232,11 @@ if __name__ in '__main__':
         if not os.path.exists(db_path):
             base.metadata.create_all(engine)
         else:
-            print("Database exists! Please delete the old one.")
+            logging.warning("Database exists! Please delete the old one.")
 
     if args.l:
         if args.u is None or args.p is None:
-            print("Params [-u / -p] missing.")
+            logging.critical("Params [-u / -p] missing.")
             sys.exit(0)
 
     config = None
@@ -239,9 +247,11 @@ if __name__ in '__main__':
                 config = configparser.ConfigParser()
                 config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.c))
             except Exception:
-                sys.exit("Config cannot be load.")
+                logging.critical("Config cannot be load.")
+                sys.exit(1)
         except IOError:
-            sys.exit("Config not found.")
+            logging.critical("Config not found.")
+            sys.exit(1)
 
     # Everything looks fine. Let's stalk Osiris. :-)
 
