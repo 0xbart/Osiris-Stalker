@@ -88,11 +88,13 @@ class Osiris:
                 self.payload['VB_gebruikersNaam'] = config.get('credentials', 'username')
                 self.payload['VB_wachtWoord'] = config.get('credentials', 'password')
             except Exception:
-                logging.critical("Reading config failed.")
+                logging.critical("Reading credentials from config failed.")
                 logging.critical(traceback.format_exc())
+                self.senderrors("Reading credentials from config failed.\n" + traceback.format_exc())
                 sys.exit(1)
         else:
-            logging.critical("No valid choice. Exiting.")
+            logging.critical("No valid credentials provided. Exiting.")
+            self.senderrors("No valid credentials provided. Exiting.")
             sys.exit(1)
 
     def getGrades(self):
@@ -182,11 +184,13 @@ class Osiris:
             except Exception:
                 logging.critical("Unhandled exception! Trowing traceback.")
                 logging.critical(traceback.format_exc())
+                self.senderrors(traceback.format_exc())
                 sys.exit(1)
 
         except Exception:
             logging.critical("Unhandled exception! Trowing traceback.")
             logging.critical(traceback.format_exc())
+            self.senderrors(traceback.format_exc())
             sys.exit(1)
 
     def sendNotifications(self, gradesToSend):
