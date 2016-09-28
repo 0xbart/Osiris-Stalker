@@ -165,6 +165,7 @@ class Osiris:
             try:
                 reallyNewGrades = {}
                 if not oldGrades:
+                    logging.info("No old grades found. Using complete new set.")
                     return newGrades
                 for newGrade in newGrades.items():
                     change = True
@@ -175,9 +176,11 @@ class Osiris:
                                 and newGrade[1]['toetsvorm'] == oldGrade[1]['toetsvorm']:
                             change = False
                     if change:
+                        logging.info("New grade detected! It's %s." % newGrade[1]['module'])
                         reallyNewGrades[reallyNewGrades.__len__() + 1] = newGrade
 
                 if reallyNewGrades != {}:
+                    logging.info("List of new grades is not empty. Returning list of updates.")
                     return reallyNewGrades
                 else:
                     return False
@@ -197,12 +200,14 @@ class Osiris:
         # Notify via slack if allowed
         slack = SlackNotify(config)
         if slack.checkenabled():
+            logging.info("Slack is enabled, sending grades.")
             slack.sendgrades(gradesToSend)
 
     def senderrors(self, errormessage):
         if self.lastcheckwaserror == 0:
             slack = SlackNotify(config)
             if slack.checkenabled():
+                logging.info("Slack is enabled, sending error.")
                 slack.senderror(errormessage)
 
     def writeGrades(self, gradesToStore):
