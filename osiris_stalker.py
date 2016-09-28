@@ -72,8 +72,6 @@ class Osiris:
         'event': 'login'
     }
 
-    lastcheckwaserror = 0
-
     # END OF DEFAULT VARS
 
     def __init__(self, args, config):
@@ -204,11 +202,10 @@ class Osiris:
             slack.sendgrades(gradesToSend)
 
     def senderrors(self, errormessage):
-        if self.lastcheckwaserror == 0:
-            slack = SlackNotify(config)
-            if slack.checkenabled():
-                logging.info("Slack is enabled, sending error.")
-                slack.senderror(errormessage)
+        slack = SlackNotify(config)
+        if slack.checkenabled():
+            logging.info("Slack is enabled, sending error.")
+            slack.senderror(errormessage)
 
     def writeGrades(self, gradesToStore):
         with open(os.path.join(os.getcwd(), "storage/osiris_results.json"), "w") as f:
