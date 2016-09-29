@@ -1,6 +1,7 @@
 import slackweb
 from configparser import ConfigParser
 
+
 class SlackNotify:
     config = ConfigParser()
     grades = {}
@@ -15,19 +16,21 @@ class SlackNotify:
         channel = self.config.get('slack', 'channel')
 
         gradeAttachments = []
-        for grade in self.grades.items():
-            attachmenttext = (str(grade[1][1]['omschrijving']) + "\n"
-                             "Toetsvorm: " + str(grade[1][1]['toetsvorm']) + "\n"
-                             "Toetsdatum: " + str(grade[1][1]['toetsdatum']) + "\n"
-                             "Mutatiedatum: " + str(grade[1][1]['mutatiedatum']) + "\n"
-                             "Resultaat: " + str(grade[1][1]['resultaat']) + "\n")
-            attachment = {"title": grade[1][1]['module'],
-                          "text": attachmenttext,
-                          "prkdwn_in": ["text","pretext"]}
-            gradeAttachments.append(attachment)
+
+        for grade in self.grades:
+            grade_msg = "Module %s, Omschrijving %s\nToetsvorm %s\nToetsdatum %s, Mutatiedatum %s\nResultaat %s" % (
+                grade['module'], grade['description'], grade['test_type'],
+                grade['date_test'], grade['date_result'], grade['result'],
+            )
+
+            msg = {
+                "title": grade['module'],
+                "text": grade_msg,
+                "prkdwn_in": ["text", "pretext"]
+            }
+
+            gradeAttachments.append(msg)
 
         slack = slackweb.Slack(url=webhook)
-        slack.notify(text="Osiris UPDATE!",
-                     channel=channel,
-                     username=username,
-                     attachments=gradeAttachments)
+        slack.notify(text="Osiris update! %d nieuwe cijfers!" % len(gradeAttachments), channel=channel,
+                     username=username, attachments=gradeAttachments)
